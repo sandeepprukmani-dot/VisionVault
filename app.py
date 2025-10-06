@@ -207,7 +207,7 @@ def uploaded_file(filename):
 
 @app.route('/api/agent/download')
 def download_agent():
-    return send_from_directory('..', 'local_agent.py', as_attachment=True)
+    return send_from_directory('', 'local_agent.py', as_attachment=True)
 
 @socketio.on('connect')
 def handle_connect():
