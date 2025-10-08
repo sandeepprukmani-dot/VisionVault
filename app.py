@@ -1,279 +1,82 @@
-import os
-import json
-import sqlite3
-from datetime import datetime
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
-from flask_cors import CORS
-from openai import OpenAI
-from executor import ServerExecutor
-from code_validator import CodeValidator
-import base64
+import json
+import os
+from datetime import datetime
+from playwright_wrapper import SelfHealingPlaywright
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key')
-app.config['UPLOAD_FOLDER'] = 'uploads'
-CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'screenshots'), exist_ok=True)
-os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'logs'), exist_ok=True)
+LOCATORS_FILE = 'locators.json'
+SCRIPTS_FILE = 'scripts.json'
 
-openai_api_key = os.environ.get('OPENAI_API_KEY','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')
-client = OpenAI(api_key=openai_api_key) if openai_api_key else None
+def load_locators():
+    if os.path.exists(LOCATORS_FILE):
+        with open(LOCATORS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
 
-connected_agents = {}
+def save_locators(locators):
+    with open(LOCATORS_FILE, 'w') as f:
+        json.dump(locators, f, indent=2)
 
-def init_db():
-    conn = sqlite3.connect('automation.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS test_history
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  command TEXT NOT NULL,
-                  generated_code TEXT NOT NULL,
-                  browser TEXT,
-                  mode TEXT,
-                  execution_location TEXT,
-                  status TEXT,
-                  logs TEXT,
-                  screenshot_path TEXT,
-                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    conn.commit()
-    conn.close()
+def load_scripts():
+    if os.path.exists(SCRIPTS_FILE):
+        with open(SCRIPTS_FILE, 'r') as f:
+            return json.load(f)
+    return []
 
-init_db()
-
-def generate_playwright_code(natural_language_command, browser='chromium'):
-    if not client:
-        raise Exception("OpenAI API key not configured. Please set the OPENAI_API_KEY environment variable.")
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": """You are an expert at converting natural language commands into Playwright Python code.
-Generate complete, executable Playwright code that:
-1. Uses async/await syntax
-2. Includes proper browser launch with the specified browser
-3. Has error handling
-4. Returns a dict with 'success', 'logs', and 'screenshot' keys
-5. Takes screenshot on success or error
-6. The code should be a complete async function named 'run_test' that takes browser_name and headless parameters
-
-Example structure:
-async def run_test(browser_name='chromium', headless=True):
-    from playwright.async_api import async_playwright
-    logs = []
-    screenshot = None
-    try:
-        async with async_playwright() as p:
-            browser = await getattr(p, browser_name).launch(headless=headless)
-            page = await browser.new_page()
-            # Your automation code here
-            logs.append("Step completed")
-            screenshot = await page.screenshot()
-            await browser.close()
-            return {'success': True, 'logs': logs, 'screenshot': screenshot}
-    except Exception as e:
-        logs.append(f"Error: {str(e)}")
-        return {'success': False, 'logs': logs, 'screenshot': screenshot}
-
-Only return the function code, no explanations."""},
-                {"role": "user", "content": f"Convert this to Playwright code for {browser}: {natural_language_command}"}
-            ],
-            temperature=0.3
-        )
-        
-        code = response.choices[0].message.content.strip()
-        if code.startswith('```python'):
-            code = code[9:]
-        if code.startswith('```'):
-            code = code[3:]
-        if code.endswith('```'):
-            code = code[:-3]
-        
-        return code.strip()
-    except Exception as e:
-        raise Exception(f"OpenAI API error: {str(e)}")
+def save_scripts(scripts):
+    with open(SCRIPTS_FILE, 'w') as f:
+        json.dump(scripts, f, indent=2)
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('/api/history')
-def get_history():
-    conn = sqlite3.connect('automation.db')
-    c = conn.cursor()
-    c.execute('SELECT * FROM test_history ORDER BY created_at DESC LIMIT 50')
-    rows = c.fetchall()
-    conn.close()
-    
-    history = []
-    for row in rows:
-        history.append({
-            'id': row[0],
-            'command': row[1],
-            'generated_code': row[2],
-            'browser': row[3],
-            'mode': row[4],
-            'execution_location': row[5],
-            'status': row[6],
-            'logs': row[7],
-            'screenshot_path': row[8],
-            'created_at': row[9]
-        })
-    
-    return jsonify(history)
+@app.route('/api/locators', methods=['GET'])
+def get_locators():
+    return jsonify(load_locators())
 
-@app.route('/api/execute', methods=['POST'])
-def execute_test():
-    data = request.json
-    command = data.get('command')
-    browser = data.get('browser', 'chromium')
-    mode = data.get('mode', 'headless')
-    execution_location = data.get('execution_location', 'server')
+@app.route('/api/scripts', methods=['GET'])
+def get_scripts():
+    return jsonify(load_scripts())
+
+@app.route('/api/scripts', methods=['POST'])
+def save_script():
+    data = request.json if request.json else {}
+    scripts = load_scripts()
+    script = {
+        'id': datetime.now().timestamp(),
+        'name': data.get('name', 'Untitled Script'),
+        'code': data.get('code', ''),
+        'created_at': datetime.now().isoformat()
+    }
+    scripts.append(script)
+    save_scripts(scripts)
+    return jsonify(script)
+
+@socketio.on('execute_script')
+def handle_execute_script(data):
+    code = data.get('code', '')
+    url = data.get('url', 'https://example.com')
     
-    if not command:
-        return jsonify({'error': 'Command is required'}), 400
+    playwright = SelfHealingPlaywright(socketio, load_locators(), save_locators)
     
     try:
-        generated_code = generate_playwright_code(command, browser)
-        
-        validator = CodeValidator()
-        if not validator.validate(generated_code):
-            error_msg = "Generated code failed security validation: " + "; ".join(validator.get_errors())
-            return jsonify({'error': error_msg}), 400
-        
-        conn = sqlite3.connect('automation.db')
-        c = conn.cursor()
-        c.execute('INSERT INTO test_history (command, generated_code, browser, mode, execution_location, status) VALUES (?, ?, ?, ?, ?, ?)',
-                  (command, generated_code, browser, mode, execution_location, 'pending'))
-        test_id = c.lastrowid
-        conn.commit()
-        conn.close()
-        
-        if execution_location == 'server':
-            socketio.start_background_task(execute_on_server, test_id, generated_code, browser, mode)
-        else:
-            socketio.emit('execute_on_agent', {
-                'test_id': test_id,
-                'code': generated_code,
-                'browser': browser,
-                'mode': mode
-            })
-        
-        return jsonify({'test_id': test_id, 'code': generated_code})
+        socketio.emit('status', {'message': 'Starting browser...', 'type': 'info'})
+        playwright.execute(code, url)
+        socketio.emit('status', {'message': 'Execution completed successfully!', 'type': 'success'})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        socketio.emit('status', {'message': f'Error: {str(e)}', 'type': 'error'})
+    finally:
+        playwright.cleanup()
 
-def execute_on_server(test_id, code, browser, mode):
-    executor = ServerExecutor()
-    headless = mode == 'headless'
-    
-    socketio.emit('execution_status', {
-        'test_id': test_id,
-        'status': 'running',
-        'message': f'Executing on server in {mode} mode...'
-    })
-    
-    result = executor.execute(code, browser, headless)
-    
-    screenshot_path = None
-    if result.get('screenshot'):
-        screenshot_path = f"screenshots/test_{test_id}.png"
-        with open(os.path.join(app.config['UPLOAD_FOLDER'], screenshot_path), 'wb') as f:
-            f.write(result['screenshot'])
-    
-    logs_json = json.dumps(result.get('logs', []))
-    status = 'success' if result.get('success') else 'failed'
-    
-    conn = sqlite3.connect('automation.db')
-    c = conn.cursor()
-    c.execute('UPDATE test_history SET status=?, logs=?, screenshot_path=? WHERE id=?',
-              (status, logs_json, screenshot_path, test_id))
-    conn.commit()
-    conn.close()
-    
-    socketio.emit('execution_complete', {
-        'test_id': test_id,
-        'status': status,
-        'logs': result.get('logs', []),
-        'screenshot_path': screenshot_path
-    })
-
-@app.route('/uploads/<path:filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
-@app.route('/api/agent/download')
-def download_agent():
-    return send_from_directory('', 'local_agent.py', as_attachment=True)
-
-@socketio.on('connect')
-def handle_connect():
-    print(f'Client connected: {request.sid}')
-    emit('connected', {'sid': request.sid})
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    print(f'Client disconnected: {request.sid}')
-    if request.sid in connected_agents:
-        del connected_agents[request.sid]
-        print(f'Updated connected_agents after disconnect: {connected_agents}')
-        socketio.emit('agents_update', {'agents': list(connected_agents.values())})
-
-@socketio.on('agent_register')
-def handle_agent_register(data):
-    agent_id = data.get('agent_id')
-    connected_agents[request.sid] = {
-        'agent_id': agent_id,
-        'browsers': data.get('browsers', []),
-        'connected_at': datetime.now().isoformat()
-    }
-    print(f'Agent registered: {agent_id}')
-    print(f'Updated connected_agents after register: {connected_agents}')
-    emit('agent_registered', {'status': 'success'})
-    print(f'Emitting agents_update: {list(connected_agents.values())}')
-    socketio.emit('agents_update', {'agents': list(connected_agents.values())})
-
-@socketio.on('agent_result')
-def handle_agent_result(data):
-    test_id = data.get('test_id')
-    success = data.get('success')
-    logs = data.get('logs', [])
-    screenshot_data = data.get('screenshot')
-    
-    screenshot_path = None
-    if screenshot_data:
-        screenshot_path = f"screenshots/test_{test_id}.png"
-        screenshot_bytes = base64.b64decode(screenshot_data)
-        with open(os.path.join(app.config['UPLOAD_FOLDER'], screenshot_path), 'wb') as f:
-            f.write(screenshot_bytes)
-    
-    logs_json = json.dumps(logs)
-    status = 'success' if success else 'failed'
-    
-    conn = sqlite3.connect('automation.db')
-    c = conn.cursor()
-    c.execute('UPDATE test_history SET status=?, logs=?, screenshot_path=? WHERE id=?',
-              (status, logs_json, screenshot_path, test_id))
-    conn.commit()
-    conn.close()
-    
-    socketio.emit('execution_complete', {
-        'test_id': test_id,
-        'status': status,
-        'logs': logs,
-        'screenshot_path': screenshot_path
-    })
-
-@socketio.on('agent_log')
-def handle_agent_log(data):
-    socketio.emit('execution_status', {
-        'test_id': data.get('test_id'),
-        'status': 'running',
-        'message': data.get('message')
-    })
+@socketio.on('element_clicked')
+def handle_element_clicked(data):
+    socketio.emit('locator_fixed', data)
 
 if __name__ == '__main__':
-    socketio.run(app, port=6745, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
