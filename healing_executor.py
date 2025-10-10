@@ -187,118 +187,129 @@ Suggest a better locator:"""}
         page_content = ''
         
         try:
-            from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+            from playwright.async_api import TimeoutError as PlaywrightTimeout
             
-            async with async_playwright() as p:
-                browser = await getattr(p, browser_name).launch(headless=headless)
-                page = await browser.new_page()
-                
-                restricted_globals = {
-                    '__builtins__': {
-                        'True': True, 'False': False, 'None': None,
-                        'dict': dict, 'list': list, 'str': str, 'int': int,
-                        'float': float, 'bool': bool, 'len': len,
-                        'Exception': Exception, '__import__': __import__,
-                    }
+            restricted_globals = {
+                '__builtins__': {
+                    'True': True, 'False': False, 'None': None,
+                    'dict': dict, 'list': list, 'str': str, 'int': int,
+                    'float': float, 'bool': bool, 'len': len,
+                    'Exception': Exception, '__import__': __import__,
                 }
-                
-                local_vars = {}
-                
-                try:
-                    exec(code, restricted_globals, local_vars)
-                    
-                    if 'run_test' in local_vars:
-                        result = await local_vars['run_test'](browser_name=browser_name, headless=headless)
-                        logs.extend(result.get('logs', []))
-                        screenshot = result.get('screenshot')
-                        logs.append("✅ Execution completed successfully")
-                    else:
-                        logs.append("✅ Code executed successfully")
-                        screenshot = await page.screenshot()
-                        
-                except PlaywrightTimeout as e:
-                    error_msg = str(e)
-                    logs.append(f"⏱️  Timeout error: {error_msg}")
-                    
-                    failed_locator = self.extract_failed_locator(error_msg)
-                    
-                    try:
-                        page_content = await page.content()
-                        screenshot = await page.screenshot()
-                    except:
-                        pass
-                    
-                    await browser.close()
-                    
-                    if failed_locator:
-                        self.failed_locators.append({
-                            'locator': failed_locator,
-                            'error': error_msg,
-                            'attempt': attempt_num + 1
-                        })
-                        
-                        return {
-                            'success': False,
-                            'logs': logs,
-                            'screenshot': screenshot,
-                            'can_heal': True,
-                            'failed_locator': failed_locator,
-                            'error_message': error_msg,
-                            'page_content': page_content
-                        }
-                    else:
-                        return {
-                            'success': False,
-                            'logs': logs,
-                            'screenshot': screenshot,
-                            'can_heal': False
-                        }
-                
-                except Exception as e:
-                    error_msg = str(e)
-                    logs.append(f"❌ Execution error: {error_msg}")
-                    
-                    failed_locator = self.extract_failed_locator(error_msg)
-                    
-                    try:
-                        page_content = await page.content()
-                        screenshot = await page.screenshot()
-                    except:
-                        pass
-                    
-                    await browser.close()
-                    
-                    if failed_locator:
-                        self.failed_locators.append({
-                            'locator': failed_locator,
-                            'error': error_msg,
-                            'attempt': attempt_num + 1
-                        })
-                        
-                        return {
-                            'success': False,
-                            'logs': logs,
-                            'screenshot': screenshot,
-                            'can_heal': True,
-                            'failed_locator': failed_locator,
-                            'error_message': error_msg,
-                            'page_content': page_content
-                        }
-                    else:
-                        return {
-                            'success': False,
-                            'logs': logs,
-                            'screenshot': screenshot,
-                            'can_heal': False
-                        }
-                
-                await browser.close()
-                
-            return {
-                'success': True,
-                'logs': logs,
-                'screenshot': screenshot
             }
+            
+            local_vars = {}
+            
+            try:
+                exec(code, restricted_globals, local_vars)
+                
+                if 'run_test' not in local_vars:
+                    logs.append("❌ Error: Generated code must contain a run_test function")
+                    return {
+                        'success': False,
+                        'logs': logs,
+                        'screenshot': None,
+                        'can_heal': False
+                    }
+                
+                result = await local_vars['run_test'](browser_name=browser_name, headless=headless)
+                logs.extend(result.get('logs', []))
+                screenshot = result.get('screenshot')
+                
+                if result.get('success'):
+                    logs.append("✅ Execution completed successfully")
+                    return {
+                        'success': True,
+                        'logs': logs,
+                        'screenshot': screenshot
+                    }
+                else:
+                    error_msg = ' '.join(result.get('logs', []))
+                    failed_locator = self.extract_failed_locator(error_msg)
+                    
+                    if failed_locator:
+                        self.failed_locators.append({
+                            'locator': failed_locator,
+                            'error': error_msg,
+                            'attempt': attempt_num + 1
+                        })
+                        
+                        return {
+                            'success': False,
+                            'logs': logs,
+                            'screenshot': screenshot,
+                            'can_heal': True,
+                            'failed_locator': failed_locator,
+                            'error_message': error_msg,
+                            'page_content': page_content
+                        }
+                    else:
+                        return {
+                            'success': False,
+                            'logs': logs,
+                            'screenshot': screenshot,
+                            'can_heal': False
+                        }
+                        
+            except PlaywrightTimeout as e:
+                error_msg = str(e)
+                logs.append(f"⏱️  Timeout error: {error_msg}")
+                
+                failed_locator = self.extract_failed_locator(error_msg)
+                
+                if failed_locator:
+                    self.failed_locators.append({
+                        'locator': failed_locator,
+                        'error': error_msg,
+                        'attempt': attempt_num + 1
+                    })
+                    
+                    return {
+                        'success': False,
+                        'logs': logs,
+                        'screenshot': screenshot,
+                        'can_heal': True,
+                        'failed_locator': failed_locator,
+                        'error_message': error_msg,
+                        'page_content': page_content
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'logs': logs,
+                        'screenshot': screenshot,
+                        'can_heal': False
+                    }
+            
+            except Exception as e:
+                error_msg = str(e)
+                logs.append(f"❌ Execution error: {error_msg}")
+                
+                failed_locator = self.extract_failed_locator(error_msg)
+                
+                if failed_locator:
+                    self.failed_locators.append({
+                        'locator': failed_locator,
+                        'error': error_msg,
+                        'attempt': attempt_num + 1
+                    })
+                    
+                    return {
+                        'success': False,
+                        'logs': logs,
+                        'screenshot': screenshot,
+                        'can_heal': True,
+                        'failed_locator': failed_locator,
+                        'error_message': error_msg,
+                        'page_content': page_content
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'logs': logs,
+                        'screenshot': screenshot,
+                        'can_heal': False
+                    }
             
         except Exception as e:
             logs.append(f'💥 Fatal error: {str(e)}')
