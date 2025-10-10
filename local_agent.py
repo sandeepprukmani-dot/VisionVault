@@ -40,6 +40,9 @@ def agent_registered(data):
     print(f"Agent registered successfully: {data}")
 
 
+active_page = None
+pending_selector_event = None
+
 @sio.on('execute_on_agent')
 def handle_execute(data):
     test_id = data['test_id']
@@ -53,6 +56,21 @@ def handle_execute(data):
     print(f"{'=' * 50}\n")
 
     asyncio.run(execute_test(test_id, code, browser, mode))
+
+@sio.on('element_selector_needed')
+def handle_element_selector_needed(data):
+    global pending_selector_event, active_page
+    test_id = data['test_id']
+    failed_locator = data['failed_locator']
+    
+    print(f"\n⚠️  Element selector needed for test {test_id}")
+    print(f"Failed locator: {failed_locator}")
+    print(f"Please click the correct element in the browser window...")
+    
+    pending_selector_event = data
+    
+    if active_page:
+        asyncio.run(inject_element_selector(test_id, failed_locator))
 
 
 def detect_browsers():
@@ -95,7 +113,127 @@ def detect_browsers():
     return browsers
 
 
+async def inject_element_selector(test_id, failed_locator):
+    """Inject element selector script into the browser page."""
+    global active_page
+    
+    if not active_page:
+        return
+    
+    try:
+        selector_script = """
+        (failedLocator) => {
+            // Remove any existing overlay
+            const existingOverlay = document.getElementById('agent-selector-overlay');
+            if (existingOverlay) existingOverlay.remove();
+            
+            // Create overlay
+            const overlay = document.createElement('div');
+            overlay.id = 'agent-selector-overlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 999999;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            `;
+            
+            const message = document.createElement('div');
+            message.style.cssText = `
+                background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+                color: white;
+                padding: 24px 32px;
+                border-radius: 16px;
+                text-align: center;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            `;
+            message.innerHTML = `
+                <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">
+                    🔍 Element Selector Mode
+                </div>
+                <div style="font-size: 14px; opacity: 0.9;">
+                    Failed locator: <code style="background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 4px;">${failedLocator}</code>
+                </div>
+                <div style="font-size: 14px; margin-top: 16px;">
+                    Click on the correct element...
+                </div>
+            `;
+            
+            overlay.appendChild(message);
+            document.body.appendChild(overlay);
+            
+            // Enable element selection
+            document.addEventListener('mouseover', function highlightElement(e) {
+                if (e.target !== overlay && !overlay.contains(e.target)) {
+                    e.target.style.outline = '3px solid #8b5cf6';
+                    e.target.style.outlineOffset = '2px';
+                }
+            });
+            
+            document.addEventListener('mouseout', function removeHighlight(e) {
+                if (e.target !== overlay && !overlay.contains(e.target)) {
+                    e.target.style.outline = '';
+                }
+            });
+            
+            document.addEventListener('click', function selectElement(e) {
+                if (e.target !== overlay && !overlay.contains(e.target)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // Generate selector for clicked element
+                    const element = e.target;
+                    let selector = '';
+                    
+                    if (element.id) {
+                        selector = `#${element.id}`;
+                    } else if (element.className) {
+                        selector = `.${element.className.split(' ')[0]}`;
+                    } else {
+                        selector = element.tagName.toLowerCase();
+                    }
+                    
+                    // Store in window for retrieval
+                    window.__selectedSelector = selector;
+                    
+                    // Remove overlay
+                    overlay.remove();
+                    element.style.outline = '';
+                    
+                    // Clean up event listeners
+                    document.removeEventListener('mouseover', highlightElement);
+                    document.removeEventListener('mouseout', removeHighlight);
+                    document.removeEventListener('click', selectElement);
+                }
+            }, true);
+        }
+        """
+        
+        await active_page.evaluate(selector_script, failed_locator)
+        
+        # Wait for user to select element
+        for _ in range(300):  # 30 seconds timeout
+            await asyncio.sleep(0.1)
+            selected = await active_page.evaluate('window.__selectedSelector')
+            if selected:
+                print(f"✅ User selected element: {selected}")
+                sio.emit('element_selected', {
+                    'test_id': test_id,
+                    'selector': selected
+                })
+                break
+                
+    except Exception as e:
+        print(f"Element selector injection error: {e}")
+
 async def execute_test(test_id, code, browser_name, mode):
+    global active_page
     headless = mode == 'headless'
 
     try:
