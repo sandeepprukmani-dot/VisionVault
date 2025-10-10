@@ -169,7 +169,7 @@ Suggest a better locator:"""}
         
         final_result = {
             'success': False,
-            'logs': result['logs'] + [f'❌ Failed after {self.max_retries} healing attempts'],
+            'logs': result.get('logs', []) + [f'❌ Failed after {self.max_retries} healing attempts'],
             'screenshot': result.get('screenshot'),
             'healed_script': self.healed_script,
             'failed_locators': self.failed_locators
