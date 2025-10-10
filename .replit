@@ -1,10 +1,10 @@
-modules = ["python-3.12"]
+modules = ["python-3.11", "web"]
 [agent]
 expertMode = true
 
 [nix]
 channel = "stable-25_05"
-packages = ["freetype", "gitFull", "iana-etc", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "playwright-driver", "tcl", "tk", "zlib"]
+packages = ["freetype", "gitFull", "iana-etc", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "playwright-driver", "postgresql", "tcl", "tk", "zlib"]
 
 [workflows]
 runButton = "Project"
@@ -16,15 +16,15 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Server"
+args = "Start application"
 
 [[workflows.workflow]]
-name = "Server"
+name = "Start application"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python app.py"
+args = "gunicorn --bind 0.0.0.0:5000 --reuse-port --reload --worker-class eventlet -w 1 main:app"
 waitForPort = 5000
 
 [workflows.workflow.metadata]
@@ -35,13 +35,13 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 32947
-externalPort = 3001
-
-[[ports]]
 localPort = 36289
 externalPort = 3000
 
+[[ports]]
+localPort = 37461
+externalPort = 3002
+
 [deployment]
-deploymentTarget = "vm"
-run = ["gunicorn", "--worker-class", "eventlet", "-w", "1", "--bind", "0.0.0.0:5000", "app:app"]
+deploymentTarget = "autoscale"
+run = ["gunicorn", "--bind", "0.0.0.0:5000", "main:app"]
