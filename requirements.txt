@@ -14,3 +14,8 @@ socketio
 flask-sqlalchemy
 psycopg2-binary
 eventlet
+email_validator
+flask
+flask-sqlalchemy
+gunicorn
+psycopg2-binary
