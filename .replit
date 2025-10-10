@@ -4,7 +4,7 @@ expertMode = true
 
 [nix]
 channel = "stable-25_05"
-packages = ["freetype", "gitFull", "iana-etc", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "playwright-driver", "postgresql", "tcl", "tk", "zlib"]
+packages = ["freetype", "gitFull", "iana-etc", "lcms2", "libev", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "playwright-driver", "postgresql", "tcl", "tk", "zlib"]
 
 [workflows]
 runButton = "Project"
@@ -27,7 +27,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python3 -m gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:5000 --reuse-port main:app"
+args = "python3 -m gunicorn -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker -w 1 --bind 0.0.0.0:5000 --reuse-port main:app"
 waitForPort = 5000
 
 [[ports]]
@@ -35,7 +35,7 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 37261
+localPort = 34537
 externalPort = 3000
 
 [deployment]
