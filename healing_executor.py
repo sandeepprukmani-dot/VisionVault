@@ -92,13 +92,19 @@ Suggest a better locator:"""}
             result = await self._execute_single_attempt(current_code, browser_name, headless, test_id, attempt)
             
             if result['success']:
-                return {
+                final_result = {
                     'success': True,
                     'logs': result['logs'],
                     'screenshot': result['screenshot'],
                     'healed_script': self.healed_script if self.healed_script != code else None,
                     'failed_locators': self.failed_locators
                 }
+                
+                if self.failed_locators:
+                    await self.report_failures_to_ai(test_id)
+                    final_result['logs'].append("📊 AI analysis complete - check insights for improvement recommendations")
+                
+                return final_result
             
             if not result.get('can_heal'):
                 return result
@@ -161,13 +167,18 @@ Suggest a better locator:"""}
             else:
                 return result
         
-        return {
+        final_result = {
             'success': False,
             'logs': result['logs'] + [f'❌ Failed after {self.max_retries} healing attempts'],
             'screenshot': result.get('screenshot'),
             'healed_script': self.healed_script,
             'failed_locators': self.failed_locators
         }
+        
+        if self.failed_locators:
+            await self.report_failures_to_ai(test_id)
+        
+        return final_result
     
     async def _execute_single_attempt(self, code, browser_name, headless, test_id, attempt_num):
         """Execute a single attempt of the automation code."""
@@ -316,3 +327,54 @@ Suggest a better locator:"""}
                 return match.group(1)
         
         return None
+    
+    async def report_failures_to_ai(self, test_id):
+        """Report all failures and healing attempts to AI for continuous improvement."""
+        if not self.failed_locators or not self.client:
+            return
+        
+        try:
+            failure_report = {
+                'test_id': test_id,
+                'total_failures': len(self.failed_locators),
+                'failures': self.failed_locators,
+                'healed_script': self.healed_script
+            }
+            
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": """You are an automation quality analyst. 
+Analyze the failures and healing attempts to provide insights for improving automation scripts.
+Identify patterns, suggest best practices, and recommend preventive measures."""},
+                    {"role": "user", "content": f"""Analyze these automation failures and healing attempts:
+
+Test ID: {test_id}
+Total Failures: {len(self.failed_locators)}
+
+Failures:
+{json.dumps(self.failed_locators, indent=2)}
+
+Final Healed Script:
+{self.healed_script[:500] if self.healed_script else 'None'}
+
+Provide:
+1. Key insights about failure patterns
+2. Recommendations for better locator strategies
+3. Preventive measures for future scripts"""}
+                ],
+                temperature=0.3
+            )
+            
+            insights = response.choices[0].message.content.strip()
+            
+            self.socketio.emit('ai_insights', {
+                'test_id': test_id,
+                'insights': insights,
+                'failure_count': len(self.failed_locators)
+            })
+            
+            return insights
+        except Exception as e:
+            print(f"AI feedback error: {e}")
+            return None

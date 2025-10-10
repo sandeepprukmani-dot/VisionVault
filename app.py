@@ -26,6 +26,7 @@ openai_api_key = os.environ.get('OPENAI_API_KEY')
 client = OpenAI(api_key=openai_api_key) if openai_api_key else None
 
 connected_agents = {}
+active_healing_executors = {}
 
 def init_db():
     conn = sqlite3.connect('automation.db')
@@ -210,6 +211,7 @@ def execute_on_server(test_id, code, browser, mode):
 
 def execute_with_healing(test_id, code, browser, mode):
     healing_executor = HealingExecutor(socketio)
+    active_healing_executors[test_id] = healing_executor
     headless = mode == 'headless'
     
     socketio.emit('execution_status', {
@@ -218,7 +220,11 @@ def execute_with_healing(test_id, code, browser, mode):
         'message': f'Executing with healing in {mode} mode...'
     })
     
-    result = asyncio.run(healing_executor.execute_with_healing(code, browser, headless, test_id))
+    try:
+        result = asyncio.run(healing_executor.execute_with_healing(code, browser, headless, test_id))
+    finally:
+        if test_id in active_healing_executors:
+            del active_healing_executors[test_id]
     
     screenshot_path = None
     if result.get('screenshot'):
@@ -363,25 +369,21 @@ def handle_agent_log(data):
 def handle_element_selected(data):
     test_id = data.get('test_id')
     selector = data.get('selector')
-    failed_locator = data.get('failed_locator')
     
-    healing_executor = HealingExecutor(socketio)
-    healed_script = healing_executor.heal_script(
-        data.get('original_code', ''),
-        failed_locator,
-        selector
-    )
-    
-    conn = sqlite3.connect('automation.db')
-    c = conn.cursor()
-    c.execute('UPDATE test_history SET healed_code=? WHERE id=?', (healed_script, test_id))
-    conn.commit()
-    conn.close()
-    
-    socketio.emit('script_healed', {
-        'test_id': test_id,
-        'healed_script': healed_script
-    })
+    if test_id in active_healing_executors:
+        healing_executor = active_healing_executors[test_id]
+        healing_executor.set_user_selector(selector)
+        
+        socketio.emit('element_selected_confirmed', {
+            'test_id': test_id,
+            'selector': selector,
+            'healed_script': healing_executor.healed_script
+        })
+    else:
+        socketio.emit('error', {
+            'test_id': test_id,
+            'message': 'No active healing session found for this test'
+        })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
