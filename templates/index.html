@@ -467,6 +467,79 @@
         .status-failed { background: #ef4444; color: white; }
         .status-pending { background: #f59e0b; color: white; }
         .status-running { background: #3b82f6; color: white; }
+
+        .element-selector-widget {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(26, 26, 26, 0.98);
+            border: 2px solid #8b5cf6;
+            border-radius: 16px;
+            padding: 0;
+            z-index: 10000;
+            min-width: 400px;
+            max-width: 500px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(139, 92, 246, 0.3);
+            backdrop-filter: blur(10px);
+            animation: widgetFadeIn 0.3s ease-out;
+        }
+
+        @keyframes widgetFadeIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -45%);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%);
+            }
+        }
+
+        .widget-header {
+            background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+            color: white;
+            padding: 16px 20px;
+            border-radius: 14px 14px 0 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: move;
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .widget-body {
+            padding: 24px 20px;
+        }
+
+        .widget-message {
+            color: #ffffff;
+            font-size: 14px;
+            line-height: 1.6;
+            margin: 0 0 16px 0;
+            padding: 12px;
+            background: rgba(139, 92, 246, 0.1);
+            border-left: 3px solid #8b5cf6;
+            border-radius: 6px;
+        }
+
+        .widget-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 8px;
+            color: #fbbf24;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .widget-status i {
+            font-size: 16px;
+        }
     </style>
 </head>
 <body>
@@ -697,6 +770,24 @@ Example: Go to LinkedIn and extract all job postings for Software Engineer"></te
                 </div>
             </div>
         </main>
+    </div>
+
+    <!-- Element Selector Widget -->
+    <div id="elementSelectorWidget" class="element-selector-widget hidden">
+        <div class="widget-header">
+            <i class="bi bi-hand-index"></i>
+            <span>Select Element</span>
+            <i class="bi bi-arrows-move" style="margin-left: auto; font-size: 14px;"></i>
+        </div>
+        <div class="widget-body">
+            <p id="selectorMessage" class="widget-message">
+                Locator failed. Please click the correct element in the browser window.
+            </p>
+            <div class="widget-status">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                <span>Execution paused - waiting for your input</span>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
@@ -986,6 +1077,76 @@ Example: Go to LinkedIn and extract all job postings for Software Engineer"></te
                 document.getElementById('serverUrlCommand').textContent = `export AGENT_SERVER_URL=${serverUrl}`;
             }
         }
+
+        socket.on('element_selector_needed', (data) => {
+            if (data.test_id === currentTestId && currentMode === 'headful') {
+                console.log('Element selector needed:', data);
+                showElementSelectorWidget(data);
+            }
+        });
+
+        function showElementSelectorWidget(data) {
+            const widget = document.getElementById('elementSelectorWidget');
+            const message = document.getElementById('selectorMessage');
+            message.textContent = `Locator failed: "${data.failed_locator}". Please click the correct element in the browser window.`;
+            widget.classList.remove('hidden');
+            
+            document.getElementById('statusMessage').textContent = `Waiting for element selection... (${data.failed_locator})`;
+        }
+
+        function hideElementSelectorWidget() {
+            document.getElementById('elementSelectorWidget').classList.add('hidden');
+        }
+
+        socket.on('element_selected_confirmed', (data) => {
+            if (data.test_id === currentTestId) {
+                hideElementSelectorWidget();
+                document.getElementById('statusMessage').textContent = 'Healing script and continuing execution...';
+                
+                if (data.healed_script) {
+                    displayHealedScript(data.healed_script);
+                }
+            }
+        });
+
+        function makeDraggable(element) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            const header = element.querySelector('.widget-header');
+            
+            if (header) {
+                header.onmousedown = dragMouseDown;
+            }
+
+            function dragMouseDown(e) {
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            }
+
+            function elementDrag(e) {
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                element.style.top = (element.offsetTop - pos2) + "px";
+                element.style.left = (element.offsetLeft - pos1) + "px";
+            }
+
+            function closeDragElement() {
+                document.onmouseup = null;
+                document.onmousemove = null;
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const widget = document.getElementById('elementSelectorWidget');
+            if (widget) {
+                makeDraggable(widget);
+            }
+        });
 
         loadHistory();
         detectSystemInfo();
