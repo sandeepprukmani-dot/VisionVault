@@ -7,8 +7,10 @@ from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from openai import OpenAI
 from executor import ServerExecutor
+from healing_executor import HealingExecutor
 from code_validator import CodeValidator
 import base64
+import asyncio
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET', 'dev-secret-key')
@@ -32,6 +34,7 @@ def init_db():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   command TEXT NOT NULL,
                   generated_code TEXT NOT NULL,
+                  healed_code TEXT,
                   browser TEXT,
                   mode TEXT,
                   execution_location TEXT,
@@ -132,6 +135,7 @@ def execute_test():
     browser = data.get('browser', 'chromium')
     mode = data.get('mode', 'headless')
     execution_location = data.get('execution_location', 'server')
+    use_healing = data.get('use_healing', True)
     
     if not command:
         return jsonify({'error': 'Command is required'}), 400
@@ -153,7 +157,10 @@ def execute_test():
         conn.close()
         
         if execution_location == 'server':
-            socketio.start_background_task(execute_on_server, test_id, generated_code, browser, mode)
+            if use_healing:
+                socketio.start_background_task(execute_with_healing, test_id, generated_code, browser, mode)
+            else:
+                socketio.start_background_task(execute_on_server, test_id, generated_code, browser, mode)
         else:
             socketio.emit('execute_on_agent', {
                 'test_id': test_id,
@@ -200,6 +207,83 @@ def execute_on_server(test_id, code, browser, mode):
         'logs': result.get('logs', []),
         'screenshot_path': screenshot_path
     })
+
+def execute_with_healing(test_id, code, browser, mode):
+    healing_executor = HealingExecutor(socketio)
+    headless = mode == 'headless'
+    
+    socketio.emit('execution_status', {
+        'test_id': test_id,
+        'status': 'running',
+        'message': f'Executing with healing in {mode} mode...'
+    })
+    
+    result = asyncio.run(healing_executor.execute_with_healing(code, browser, headless, test_id))
+    
+    screenshot_path = None
+    if result.get('screenshot'):
+        screenshot_path = f"screenshots/test_{test_id}.png"
+        with open(os.path.join(app.config['UPLOAD_FOLDER'], screenshot_path), 'wb') as f:
+            f.write(result['screenshot'])
+    
+    logs_json = json.dumps(result.get('logs', []))
+    status = 'success' if result.get('success') else 'failed'
+    healed_code = result.get('healed_script')
+    
+    conn = sqlite3.connect('automation.db')
+    c = conn.cursor()
+    c.execute('UPDATE test_history SET status=?, logs=?, screenshot_path=?, healed_code=? WHERE id=?',
+              (status, logs_json, screenshot_path, healed_code, test_id))
+    conn.commit()
+    conn.close()
+    
+    socketio.emit('execution_complete', {
+        'test_id': test_id,
+        'status': status,
+        'logs': result.get('logs', []),
+        'screenshot_path': screenshot_path,
+        'healed_script': healed_code,
+        'failed_locators': result.get('failed_locators', [])
+    })
+
+@app.route('/api/heal', methods=['POST'])
+def heal_locator():
+    data = request.json
+    test_id = data.get('test_id')
+    failed_locator = data.get('failed_locator')
+    healed_locator = data.get('healed_locator')
+    
+    if not all([test_id, failed_locator, healed_locator]):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    try:
+        conn = sqlite3.connect('automation.db')
+        c = conn.cursor()
+        c.execute('SELECT generated_code, healed_code FROM test_history WHERE id=?', (test_id,))
+        row = c.fetchone()
+        
+        if not row:
+            return jsonify({'error': 'Test not found'}), 404
+        
+        original_code = row[0]
+        current_healed = row[1] or original_code
+        
+        new_healed = current_healed.replace(failed_locator, healed_locator)
+        
+        c.execute('UPDATE test_history SET healed_code=? WHERE id=?', (new_healed, test_id))
+        conn.commit()
+        conn.close()
+        
+        socketio.emit('script_healed', {
+            'test_id': test_id,
+            'healed_script': new_healed,
+            'failed_locator': failed_locator,
+            'healed_locator': healed_locator
+        })
+        
+        return jsonify({'success': True, 'healed_script': new_healed})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/uploads/<path:filename>')
 def uploaded_file(filename):
@@ -273,6 +357,30 @@ def handle_agent_log(data):
         'test_id': data.get('test_id'),
         'status': 'running',
         'message': data.get('message')
+    })
+
+@socketio.on('element_selected')
+def handle_element_selected(data):
+    test_id = data.get('test_id')
+    selector = data.get('selector')
+    failed_locator = data.get('failed_locator')
+    
+    healing_executor = HealingExecutor(socketio)
+    healed_script = healing_executor.heal_script(
+        data.get('original_code', ''),
+        failed_locator,
+        selector
+    )
+    
+    conn = sqlite3.connect('automation.db')
+    c = conn.cursor()
+    c.execute('UPDATE test_history SET healed_code=? WHERE id=?', (healed_script, test_id))
+    conn.commit()
+    conn.close()
+    
+    socketio.emit('script_healed', {
+        'test_id': test_id,
+        'healed_script': healed_script
     })
 
 if __name__ == '__main__':

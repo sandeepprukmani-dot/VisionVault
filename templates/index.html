@@ -572,15 +572,28 @@ Example: Go to LinkedIn and extract all job postings for Software Engineer"></te
                         <strong><i class="bi bi-hourglass-split"></i> Status:</strong> <span id="statusMessage">Initializing...</span>
                     </div>
 
-                    <div class="results-grid">
+                    <div class="results-grid" style="grid-template-columns: repeat(3, 1fr);">
                         <div class="result-panel">
-                            <div class="panel-title">Generated Script</div>
+                            <div class="panel-title">
+                                <i class="bi bi-code-square"></i> Generated Script
+                            </div>
                             <div class="panel-content" id="scriptPanel">
                                 <div class="empty-state">No script generated yet</div>
                             </div>
                         </div>
                         <div class="result-panel">
-                            <div class="panel-title">Execution Logs</div>
+                            <div class="panel-title">
+                                <i class="bi bi-wrench"></i> Healed Script
+                                <span style="font-size: 11px; background: rgba(139, 92, 246, 0.2); color: #a78bfa; padding: 2px 8px; border-radius: 4px; margin-left: 8px;">SMART</span>
+                            </div>
+                            <div class="panel-content" id="healedScriptPanel">
+                                <div class="empty-state">No healed script yet</div>
+                            </div>
+                        </div>
+                        <div class="result-panel">
+                            <div class="panel-title">
+                                <i class="bi bi-list-ul"></i> Execution Logs
+                            </div>
                             <div class="panel-content" id="logsPanel">
                                 <div class="empty-state">No logs yet</div>
                             </div>
@@ -725,6 +738,20 @@ Example: Go to LinkedIn and extract all job postings for Software Engineer"></te
             }
         });
 
+        socket.on('script_healed', (data) => {
+            if (data.test_id === currentTestId) {
+                displayHealedScript(data.healed_script);
+                console.log('Script healed:', data);
+            }
+        });
+
+        socket.on('healing_required', (data) => {
+            if (data.test_id === currentTestId) {
+                console.log('Healing required:', data);
+                document.getElementById('statusMessage').textContent = `Locator failed: ${data.failed_locator}. AI is improving...`;
+            }
+        });
+
         function updateAgentStatus() {
             const badge = document.getElementById('connectedBadge');
             if (agentConnected) {
@@ -783,6 +810,7 @@ Example: Go to LinkedIn and extract all job postings for Software Engineer"></te
             document.getElementById('statusAlert').classList.remove('hidden');
             document.getElementById('statusMessage').textContent = 'Generating code...';
             document.getElementById('scriptPanel').innerHTML = '<div class="empty-state">Generating...</div>';
+            document.getElementById('healedScriptPanel').innerHTML = '<div class="empty-state">No healed script yet</div>';
             document.getElementById('logsPanel').innerHTML = '<div class="empty-state">Waiting...</div>';
 
             fetch('/api/execute', {
@@ -812,23 +840,29 @@ Example: Go to LinkedIn and extract all job postings for Software Engineer"></te
             });
         }
 
+        function displayHealedScript(healedScript) {
+            if (healedScript) {
+                document.getElementById('healedScriptPanel').innerHTML = `
+                    <div class="code-block" style="border-color: #8b5cf6;">
+                        <div style="background: rgba(139, 92, 246, 0.1); padding: 8px 12px; margin: -12px -12px 12px -12px; border-bottom: 1px solid rgba(139, 92, 246, 0.3); font-size: 12px; color: #a78bfa;">
+                            <i class="bi bi-check-circle-fill"></i> AI-Healed & Improved
+                        </div>
+                        ${healedScript}
+                    </div>`;
+            }
+        }
+
         function displayResult(data) {
             const logsHtml = data.logs.map(log => `<div class="log-line">${log}</div>`).join('');
             document.getElementById('logsPanel').innerHTML = `<div class="log-container">${logsHtml || '<div style="color: #555555;">No logs available</div>'}</div>`;
             
+            if (data.healed_script) {
+                displayHealedScript(data.healed_script);
+            }
+            
             if (data.screenshot_path) {
                 const resultsGrid = document.querySelector('.results-grid');
-                if (resultsGrid.children.length === 2) {
-                    const screenshotPanel = document.createElement('div');
-                    screenshotPanel.className = 'result-panel';
-                    screenshotPanel.innerHTML = `
-                        <div class="panel-title">Screenshot</div>
-                        <div class="screenshot-container">
-                            <img src="/uploads/${data.screenshot_path}" alt="Screenshot">
-                        </div>
-                    `;
-                    resultsGrid.appendChild(screenshotPanel);
-                    resultsGrid.style.gridTemplateColumns = '1fr 1fr 1fr';
+                if (resultsGrid.children.length === 3) {
                 }
             }
         }
