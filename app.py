@@ -20,7 +20,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'screenshots'), exist_ok=True)
 os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'logs'), exist_ok=True)
 
-openai_api_key = os.environ.get('OPENAI_API_KEY','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')
+openai_api_key = os.environ.get('OPENAI_API_KEY')
 client = OpenAI(api_key=openai_api_key) if openai_api_key else None
 
 connected_agents = {}
@@ -276,4 +276,5 @@ def handle_agent_log(data):
     })
 
 if __name__ == '__main__':
-    socketio.run(app, port=6745, debug=True, allow_unsafe_werkzeug=True)
+    port = int(os.environ.get('PORT', 5000))
+    socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)
