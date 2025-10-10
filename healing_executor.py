@@ -13,6 +13,8 @@ class HealingExecutor:
         self.failed_locators = []
         self.retry_count = 0
         self.max_retries = 3
+        self.user_selector_event = None
+        self.user_selected_selector = None
         
     def improve_locator_with_ai(self, failed_locator, error_message, page_html_snippet=''):
         """Use AI to suggest better locator strategies."""
@@ -55,6 +57,23 @@ Suggest a better locator:"""}
         self.healed_script = healed
         return healed
     
+    async def wait_for_user_selector(self, timeout=300):
+        """Wait for user to select an element interactively."""
+        self.user_selector_event = asyncio.Event()
+        self.user_selected_selector = None
+        
+        try:
+            await asyncio.wait_for(self.user_selector_event.wait(), timeout=timeout)
+            return self.user_selected_selector
+        except asyncio.TimeoutError:
+            return None
+    
+    def set_user_selector(self, selector):
+        """Called when user selects an element."""
+        self.user_selected_selector = selector
+        if self.user_selector_event:
+            self.user_selector_event.set()
+    
     async def execute_with_healing(self, code, browser_name, headless, test_id):
         """Execute code with automatic healing and retry on failures."""
         validator = CodeValidator()
@@ -86,21 +105,47 @@ Suggest a better locator:"""}
             
             failed_locator = result.get('failed_locator')
             if failed_locator:
-                self.socketio.emit('healing_required', {
-                    'test_id': test_id,
-                    'failed_locator': failed_locator,
-                    'error': result.get('error_message', ''),
-                    'attempt': attempt + 1,
-                    'headless': headless
-                })
+                improved_locator = None
                 
-                improved_locator = self.improve_locator_with_ai(
-                    failed_locator, 
-                    result.get('error_message', ''),
-                    result.get('page_content', '')
-                )
-                
-                result['logs'].append(f"🔧 Healing attempt {attempt + 1}: AI suggested locator: {improved_locator}")
+                if not headless:
+                    self.socketio.emit('element_selector_needed', {
+                        'test_id': test_id,
+                        'failed_locator': failed_locator,
+                        'error': result.get('error_message', ''),
+                        'attempt': attempt + 1
+                    })
+                    
+                    result['logs'].append(f"👆 Waiting for user to select element (failed locator: {failed_locator})...")
+                    
+                    user_selector = await self.wait_for_user_selector(timeout=300)
+                    
+                    if user_selector:
+                        improved_locator = user_selector
+                        result['logs'].append(f"✅ User selected element: {improved_locator}")
+                    else:
+                        result['logs'].append(f"⏱️  User selection timeout, falling back to AI...")
+                        improved_locator = self.improve_locator_with_ai(
+                            failed_locator, 
+                            result.get('error_message', ''),
+                            result.get('page_content', '')
+                        )
+                        result['logs'].append(f"🤖 AI suggested locator: {improved_locator}")
+                else:
+                    self.socketio.emit('healing_required', {
+                        'test_id': test_id,
+                        'failed_locator': failed_locator,
+                        'error': result.get('error_message', ''),
+                        'attempt': attempt + 1,
+                        'headless': headless
+                    })
+                    
+                    improved_locator = self.improve_locator_with_ai(
+                        failed_locator, 
+                        result.get('error_message', ''),
+                        result.get('page_content', '')
+                    )
+                    
+                    result['logs'].append(f"🔧 Healing attempt {attempt + 1}: AI suggested locator: {improved_locator}")
                 
                 current_code = self.heal_script(current_code, failed_locator, improved_locator)
                 
@@ -112,7 +157,7 @@ Suggest a better locator:"""}
                     'attempt': attempt + 1
                 })
                 
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
             else:
                 return result
         
