@@ -1,0 +1,31 @@
+Updated connected_agents after register: {'C1u6Ozz7mXIC7_r2AAAP': {'agent_id': '8ba2d498-9aca-4383-81d7-aa777a13db6e', 'browsers': ['chromium'], 'connected_at': '2025-10-11T01:18:37.579354'}}
+Emitting agents_update: [{'agent_id': '8ba2d498-9aca-4383-81d7-aa777a13db6e', 'browsers': ['chromium'], 'connected_at': '2025-10-11T01:18:37.579354'}]
+Traceback (most recent call last):
+  File "src/gevent/greenlet.py", line 900, in gevent._gevent_cgreenlet.Greenlet.run
+  File "/home/runner/workspace/app.py", line 363, in execute_agent_with_healing
+    result = loop.run_until_complete(_run_healing())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nix/store/7d088dip86hlzri9sk0h78b63yfmx0a0-python3-3.11.13/lib/python3.11/asyncio/base_events.py", line 630, in run_until_complete
+    self._check_running()
+  File "/nix/store/7d088dip86hlzri9sk0h78b63yfmx0a0-python3-3.11.13/lib/python3.11/asyncio/base_events.py", line 589, in _check_running
+    raise RuntimeError('This event loop is already running')
+RuntimeError: This event loop is already running
+2025-10-11T01:18:47Z <Thread at 0x7fac36f8b880: execute_agent_with_healing(44, '\nasync def run_test(browser_name=\'chromium\', h, 'chromium', 'headful')> failed with RuntimeError
+
+/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gevent/hub.py:647: RuntimeWarning: coroutine 'execute_agent_with_healing.<locals>._run_healing' was never awaited
+  loop.run()
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+^C[2025-10-11 01:19:30 +0000] [1310] [INFO] Handling signal: int
+[2025-10-11 01:19:30 +0000] [1316] [INFO] Worker exiting (pid: 1316)
+Traceback (most recent call last):
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gevent/monkey/_patch_thread_lt313.py", line 56, in _shutdown
+    sleep()
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gevent/hub.py", line 159, in sleep
+    waiter.get()
+  File "src/gevent/_waiter.py", line 143, in gevent._gevent_c_waiter.Waiter.get
+  File "src/gevent/_waiter.py", line 154, in gevent._gevent_c_waiter.Waiter.get
+  File "src/gevent/_greenlet_primitives.py", line 65, in gevent._gevent_c_greenlet_primitives.SwitchOutGreenletWithLoop.switch
+  File "src/gevent/_gevent_c_greenlet_primitives.pxd", line 35, in gevent._gevent_c_greenlet_primitives._greenlet_switch
+  File "src/gevent/greenlet.py", line 900, in gevent._gevent_cgreenlet.Greenlet.run
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/gunicorn/workers/base.py", line 199, in handle_quit
+    sys.exit(0)
