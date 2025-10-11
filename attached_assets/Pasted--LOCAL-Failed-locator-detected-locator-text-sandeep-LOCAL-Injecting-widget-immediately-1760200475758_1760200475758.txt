@@ -1,0 +1,16 @@
+🎯 LOCAL: Failed locator detected: locator("text='sandeep'")
+🚀 LOCAL: Injecting widget immediately (no server delay)
+🎯 Injecting element selector widget for test 23 on page: https://www.jio.com/
+✅ Element selector widget injected successfully
+⏳ Polling for user element selection...
+✅ User selected element: #jds-text
+⏳ Waiting for user to select element (300s timeout)...
+✅ User selection completed
+🧹 Cleaning up browser after widget interaction...
+Emitting event "element_selected" [/]
+Sending packet MESSAGE data 2["element_selected",{"test_id":23,"selector":"#jds-text"}]
+✅ Browser closed after healing attempt
+Received packet MESSAGE data 2["element_selected_confirmed",{"test_id":23,"selector":"#jds-text","healed_script":"async def run_test(browser_name='chromium', headless=True):\n    from playwright.async_api import async_playwright\n    logs = []\n    screenshot = None\n    browser = None\n    page = None\n    try:\n        async with async_playwright() as p:\n            browser = await getattr(p, browser_name).launch(headless=headless)\n            page = await browser.new_page()\n            await page.goto(\"https://www.jio.com/\")\n            logs.append(\"Navigated to https://www.jio.com/\")\n            # Click the \"sandeep\" button\n            await page.click(\"text='sandeep'\")\n            logs.append(\"Clicked the 'sandeep' button\")\n            # CRITICAL: Screenshot BEFORE closing\n            screenshot = await page.screenshot()\n            await browser.close()\n            return {'success': True, 'logs': logs, 'screenshot': screenshot}\n    except Exception as e:\n        logs.append(f\"Error: {str(e)}\")\n        # Try to get screenshot even on error, BEFORE cleanup\n        if page:\n            try:\n                screenshot = await page.screenshot()\n            except:\n                pass\n        if browser:\n            try:\n                await browser.close()\n            except:\n                pass\n        return {'success': False, 'logs': logs, 'screenshot': screenshot}"}]
+Received event "element_selected_confirmed" [/]
+Received packet PING data 
+Sending packet PONG data 
