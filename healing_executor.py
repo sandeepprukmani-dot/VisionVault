@@ -20,6 +20,7 @@ class HealingExecutor:
         self.execution_mode = 'server'  # 'server' or 'agent'
         self.agent_result = None
         self.agent_result_event = None
+        self.agent_sid = None  # Agent session ID for targeted emits
         
     def improve_locator_with_ai(self, failed_locator, error_message, page_html_snippet=''):
         """Use AI to suggest better locator strategies."""
@@ -205,18 +206,22 @@ Suggest a better locator:"""}
                 return result
             
             failed_locator = result.get('failed_locator')
+            print(f"🔍 DEBUG: failed_locator={failed_locator}, headless={headless}, execution_mode={self.execution_mode}")
             if failed_locator:
                 improved_locator = None
                 
                 if not headless:
                     mode = 'headful' if not headless else 'headless'
+                    # Broadcast to all connected clients (agents will handle it, web browser will ignore)
+                    print(f"🔔 SERVER: Emitting element_selector_needed event for test {test_id}, locator: {failed_locator}, mode: {mode}")
                     self.socketio.emit('element_selector_needed', {
                         'test_id': test_id,
                         'failed_locator': failed_locator,
                         'error': result.get('error_message', ''),
                         'attempt': attempt + 1,
                         'mode': mode
-                    })
+                    }, broadcast=True)
+                    print(f"✅ SERVER: element_selector_needed event emitted successfully")
                     
                     result['logs'].append(f"👆 Waiting for user to select element (failed locator: {failed_locator})...")
                     

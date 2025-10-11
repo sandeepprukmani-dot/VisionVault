@@ -326,8 +326,18 @@ def execute_with_healing(test_id, code, browser, mode):
 
 def execute_agent_with_healing(test_id, code, browser, mode):
     """Execute automation on agent with server-coordinated healing."""
+    import gevent
+    from gevent import monkey
+    
+    # Find the agent's session ID
+    agent_sid = None
+    for sid in connected_agents:
+        agent_sid = sid
+        break  # Get the first available agent
+    
     healing_executor = HealingExecutor(socketio, api_key=openai_api_key)
     healing_executor.execution_mode = 'agent'  # Mark as agent execution
+    healing_executor.agent_sid = agent_sid  # Store agent session ID
     active_healing_executors[test_id] = healing_executor
     headless = mode == 'headless'
     
@@ -337,8 +347,20 @@ def execute_agent_with_healing(test_id, code, browser, mode):
         'message': f'Executing on agent with healing in {mode} mode...'
     })
     
+    # Run async code in gevent-compatible way
+    async def _run_healing():
+        return await healing_executor.execute_with_healing(code, browser, headless, test_id)
+    
     try:
-        result = asyncio.run(healing_executor.execute_with_healing(code, browser, headless, test_id))
+        # Get or create event loop
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Run the async function
+        result = loop.run_until_complete(_run_healing())
     finally:
         if test_id in active_healing_executors:
             del active_healing_executors[test_id]

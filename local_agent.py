@@ -216,10 +216,17 @@ async def execute_healing_attempt(test_id, code, browser_name, mode, attempt):
         
         # 3. Inject code to capture page reference globally
         if 'page = await browser.new_page()' in modified_code:
-            modified_code = modified_code.replace(
-                'page = await browser.new_page()',
-                'page = await browser.new_page()\n            globals()["__healing_page__"] = page'
-            )
+            # Find the line and detect its indentation
+            lines = modified_code.split('\n')
+            for i, line in enumerate(lines):
+                if 'page = await browser.new_page()' in line:
+                    # Extract the indentation from this line
+                    indent_match = re.match(r'^(\s*)', line)
+                    indent = indent_match.group(1) if indent_match else ''
+                    # Replace this line with the page creation + globals injection
+                    lines[i] = f'{indent}page = await browser.new_page()\n{indent}globals()["__healing_page__"] = page'
+                    break
+            modified_code = '\n'.join(lines)
         
         global_vars = {'__healing_page__': None, '__p_instance__': None}
         local_vars = {}
